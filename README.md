@@ -56,6 +56,6 @@ for any questions.
 
 ## Acknowledgements
 
-Do visit its [Finite-Volume](https://github.com/gpavanb1/splitfdm) cousin
+Do visit its [Finite-Volume](https://github.com/gpavanb1/SplitFVM) cousin
 
 Special thanks to [Cantera](https://github.com/Cantera/cantera) and [WENO-Scalar](https://github.com/comp-physics/WENO-scalar) for serving as an inspiration for code architecture.
