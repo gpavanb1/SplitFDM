@@ -92,7 +92,7 @@ class Simulation:
         # Evaluate residuals (values, derivatives) from equations
         interior_residual_block = self._s.residuals(self._d)
 
-        # Update cell values and faces
+        # Update cell values
         self._d.update(dt, interior_residual_block)
 
         # Perform mesh refinement if enabled
