@@ -1,8 +1,9 @@
 from .domain import Domain
 from .constants import btype, btype_map
+from .error import SFDM
 
 
-def apply_BC(d: Domain, v: str, bc: str = "periodic", xmin=0.0, xmax=1.0):
+def apply_BC(d: Domain, v: str, bc: dict = {"left": "periodic", "right": "periodic"}, xmin=0.0, xmax=1.0):
     """
     Apply boundary conditions to the given domain.
 
@@ -37,91 +38,124 @@ def apply_BC(d: Domain, v: str, bc: str = "periodic", xmin=0.0, xmax=1.0):
 
     lb, rb = d.boundaries()
 
-    if bc == "periodic":
-        # left boundary
-        # Ghost cells are (right to left) the rightmost elements (same order)
-        for i, b in enumerate(lb):
-            shift = xmax - cells[ihi - (i + 1)].x()
-            b.set_x(xmin - shift)
-            b.set_value(idx, cells[ihi - (i + 1)].value(idx))
+    # Check only required directions specified
+    bc_keys = sorted(list(bc.keys()))
+    if bc_keys != [btype_map[btype.LEFT], btype_map[btype.RIGHT]]:
+        raise SFDM("Incorrect boundary directions specified")
 
-        # right boundary
-        # Ghost cells are (left to right) the leftmost elements (same order)
-        for i, b in enumerate(rb):
-            shift = cells[(i + 1) + ilo].x() - xmin
-            b.set_x(xmax + shift)
-            b.set_value(idx, cells[(i + 1) + ilo].value(idx))
+    # Iterate over left and right BCs
+    for dir in bc_keys:
+        bc_type = bc[dir]
 
-    elif bc == "outflow":
-        # left boundary
-        for i, b in enumerate(lb):
-            # The shift mirrors the interior on the same side
-            shift = cells[(i + 1) + ilo].x() - xmin
-            b.set_x(xmin - shift)
-            # Value same as leftmost interior
-            b.set_value(idx, cells[ilo].value(idx))
+        if bc_type == "periodic":
+            if dir == btype_map[btype.LEFT]:
+                # left boundary
+                # Ghost cells are (right to left) the rightmost elements (same order)
+                for i, b in enumerate(lb):
+                    shift = xmax - cells[ihi - (i + 1)].x()
+                    b.set_x(xmin - shift)
+                    b.set_value(idx, cells[ihi - (i + 1)].value(idx))
 
-        # right boundary
-        for i, b in enumerate(rb):
-            # The shift mirrors the interior on the same side
-            shift = xmax - cells[ihi - (i + 1)].x()
-            b.set_x(xmax + shift)
-            # Value same as extrapolated from interior
-            dy = cells[ihi].value(idx) - cells[ihi - 1].value(idx)
-            dx = cells[ihi].x() - cells[ihi - 1].x()
-            delta_x = cells[ihi + (i + 1)].x() - cells[ihi + i].x()
+            elif dir == btype_map[btype.RIGHT]:
+                # right boundary
+                # Ghost cells are (left to right) the leftmost elements (same order)
+                for i, b in enumerate(rb):
+                    shift = cells[(i + 1) + ilo].x() - xmin
+                    b.set_x(xmax + shift)
+                    b.set_value(idx, cells[(i + 1) + ilo].value(idx))
 
-            b.set_value(idx, cells[ihi + i].value(idx) + (dy/dx) * delta_x)
+            else:
+                raise SFDM("Incorrect boundary direction encountered")
 
-    # Dictionary-based boundary conditions
-    # Dirichlet and Neumann BCs require additional values also
-    elif isinstance(bc, dict) and len(bc.keys()) == 1:
-        bctype = list(bc.keys())[0]
+        elif bc_type == "outflow":
+            if dir == btype_map[btype.LEFT]:
+                # left boundary
+                for i, b in enumerate(lb):
+                    # The shift mirrors the interior on the same side
+                    shift = cells[(i + 1) + ilo].x() - xmin
+                    b.set_x(xmin - shift)
+                    # Value same as leftmost interior
+                    b.set_value(idx, cells[ilo].value(idx))
 
-        if bctype == "neumann":
-            # left boundary
-            neumann_value = bc[bctype][btype_map[btype.LEFT]]
-            for i, b in enumerate(lb):
-                # The shift mirrors the interior on the same side
-                shift = cells[(i + 1) + ilo].x() - xmin
-                b.set_x(xmin - shift)
+            elif dir == btype_map[btype.RIGHT]:
+                # right boundary
+                for i, b in enumerate(rb):
+                    # The shift mirrors the interior on the same side
+                    shift = xmax - cells[ihi - (i + 1)].x()
+                    b.set_x(xmax + shift)
+                    # Value same as extrapolated from interior
+                    dy = cells[ihi].value(idx) - cells[ihi - 1].value(idx)
+                    dx = cells[ihi].x() - cells[ihi - 1].x()
+                    delta_x = cells[ihi + (i + 1)].x() - cells[ihi + i].x()
 
-                # Cell width to the left
-                dx = cells[ilo - i].x() - cells[ilo - (i + 1)].x()
-                b.set_value(
-                    idx, cells[ilo - i].value(idx) - neumann_value * dx)
+                    b.set_value(
+                        idx, cells[ihi + i].value(idx) + (dy/dx) * delta_x)
 
-            # right boundary
-            neumann_value = bc[bctype][btype_map[btype.RIGHT]]
-            for i, b in enumerate(rb):
-                # The shift mirrors the interior on the same side
-                shift = xmax - cells[ihi - (i + 1)].x()
-                b.set_x(xmax + shift)
+            else:
+                raise SFDM("Incorrect boundary direction encountered")
 
-                # Cell width to the right
-                dx = cells[ihi + (i + 1)].x() - cells[ihi + i].x()
-                b.set_value(
-                    idx, cells[ihi + i].value(idx) + neumann_value * dx)
+        # Dictionary-based boundary conditions
+        # Dirichlet and Neumann BCs require additional values also
+        elif isinstance(bc_type, dict) and len(bc_type.keys()) == 1:
+            bc_data = list(bc_type.values())[0]
+            bc_type = list(bc_type.keys())[0]
 
-        elif bctype == "dirichlet":
-            # left boundary
-            dirichlet_value = bc[bctype][btype_map[btype.LEFT]]
-            for i, b in enumerate(lb):
-                # The shift mirrors the interior on the same side
-                shift = cells[(i + 1) + ilo].x() - xmin
-                b.set_x(xmin - shift)
+            if bc_type == "neumann":
+                if dir == btype_map[btype.LEFT]:
+                    # left boundary
+                    neumann_value = bc_data
+                    for i, b in enumerate(lb):
+                        # The shift mirrors the interior on the same side
+                        shift = cells[(i + 1) + ilo].x() - xmin
+                        b.set_x(xmin - shift)
 
-                b.set_value(idx, dirichlet_value)
+                        # Cell width to the left
+                        dx = cells[ilo - i].x() - cells[ilo - (i + 1)].x()
+                        b.set_value(
+                            idx, cells[ilo - i].value(idx) - neumann_value * dx)
 
-            # right boundary
-            dirichlet_value = bc[bctype][btype_map[btype.RIGHT]]
-            for i, b in enumerate(rb):
-                # The shift mirrors the interior on the same side
-                shift = xmax - cells[ihi - (i + 1)].x()
-                b.set_x(xmax + shift)
+                elif dir == btype_map[btype.RIGHT]:
+                    # right boundary
+                    neumann_value = bc_data
+                    for i, b in enumerate(rb):
+                        # The shift mirrors the interior on the same side
+                        shift = xmax - cells[ihi - (i + 1)].x()
+                        b.set_x(xmax + shift)
 
-                b.set_value(idx, dirichlet_value)
+                        # Cell width to the right
+                        dx = cells[ihi + (i + 1)].x() - cells[ihi + i].x()
+                        b.set_value(
+                            idx, cells[ihi + i].value(idx) + neumann_value * dx)
+
+                else:
+                    raise SFDM("Incorrect boundary direction encountered")
+
+            elif bc_type == "dirichlet":
+                if dir == btype_map[btype.LEFT]:
+                    # left boundary
+                    dirichlet_value = bc_data
+                    for i, b in enumerate(lb):
+                        # The shift mirrors the interior on the same side
+                        shift = cells[(i + 1) + ilo].x() - xmin
+                        b.set_x(xmin - shift)
+
+                        b.set_value(idx, dirichlet_value)
+
+                elif dir == btype_map[btype.RIGHT]:
+                    # right boundary
+                    dirichlet_value = bc_data
+                    for i, b in enumerate(rb):
+                        # The shift mirrors the interior on the same side
+                        shift = xmax - cells[ihi - (i + 1)].x()
+                        b.set_x(xmax + shift)
+
+                        b.set_value(idx, dirichlet_value)
+
+                else:
+                    raise SFDM("Incorrect boundary direction encountered")
+
+            else:
+                raise SFDM(
+                    "Incorrect data specified for dictionary-type boundaries")
         else:
-            raise NotImplementedError
-    else:
-        raise NotImplementedError
+            raise SFDM("Boundary type not implemented")
