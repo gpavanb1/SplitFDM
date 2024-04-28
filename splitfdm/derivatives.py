@@ -31,10 +31,11 @@ def Dx(F, cell_sub, scheme):
 
         ul = cell_sub[0].values()
         ur = cell_sub[2].values()
-
+        Fl = F(ul)
+        Fr = F(ur)
         dx = cell_sub[2].x() - cell_sub[0].x()
 
-        return (ur - ul) / dx
+        return (Fr - Fl) / dx
     else:
         raise SFDM("Unsupported scheme")
 
@@ -66,7 +67,7 @@ def D2x(D, cell_sub, scheme):
         uc = cell_sub[1].values()
         Dl = D(ul)
         Dr = D(uc)
-        dxw = 0.5 * (cell_sub[1].x() - cell_sub[0].x())
+        dxw = cell_sub[1].x() - cell_sub[0].x()
         Dw = (Dr - Dl) / dxw
 
         # East derivative
@@ -74,7 +75,7 @@ def D2x(D, cell_sub, scheme):
         ur = cell_sub[2].values()
         Dl = D(uc)
         Dr = D(ur)
-        dxe = 0.5 * (cell_sub[2].x() - cell_sub[1].x())
+        dxe = cell_sub[2].x() - cell_sub[1].x()
         De = (Dr - Dl) / dxe
 
         dx = 0.5 * (dxw + dxe)

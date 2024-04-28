@@ -1,8 +1,6 @@
 import numpy as np
-from enum import Enum
+from .constants import btype
 from .error import SFDM
-
-btype = Enum("btype", "LEFT RIGHT")
 
 
 class Boundary:
