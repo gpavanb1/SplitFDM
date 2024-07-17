@@ -5,13 +5,13 @@ with open("README.md", "r") as fh:
 
 setup(
     name="SplitFDM",
-    version="0.1.2",
+    version="0.1.3",
     description="1D Finite-Difference Split Newton Solver",
     url="https://github.com/gpavanb1/SplitFDM",
     author="gpavanb1",
     author_email="gpavanb@gmail.com",
     license="MIT",
-    packages=["splitfdm"],
+    packages=["splitfdm", "splitfdm.equations"],
     install_requires=["numpy", "numdifftools", "matplotlib", "splitnewton"],
     long_description=long_description,
     long_description_content_type="text/markdown",
