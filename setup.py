@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="SplitFDM",
-    version="0.1.4",
+    version="0.2",
     description="1D Finite-Difference Split Newton Solver",
     url="https://github.com/gpavanb1/SplitFDM",
     author="gpavanb1",
