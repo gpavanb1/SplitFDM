@@ -13,6 +13,12 @@ from .model import Model
 from .bc import apply_BC
 from .initialize import set_initial_condition
 
+# Get the center cell
+from .derivatives import get_center_cell
+
+# Sparse matrix for Jacobian
+from scipy.sparse import lil_matrix
+
 
 def array_list_reshape(l, shape):
     """
@@ -252,7 +258,7 @@ class Simulation:
             return [bounds[0][:split_loc] * num_points + bounds[0][split_loc:] * num_points,
                     bounds[1][:split_loc] * num_points + bounds[1][split_loc:] * num_points]
 
-    def jacobian(self, l, split=False, split_loc=None):
+    def jacobian(self, l, split=False, split_loc=None, epsilon=1e-8):
         """
         Calculate the Jacobian of the system.
 
@@ -271,8 +277,99 @@ class Simulation:
             The Jacobian of the system.
         """
 
-        def _f(u): return self.get_residuals_from_list(u, split, split_loc)
-        return nd.Jacobian(_f, method="central")(l)
+        # Assign values from list
+        # Note domain already exists and we preserve distances
+        print('Start Jacobian...')
+        self.initialize_from_list(l, split, split_loc)
+
+        # Fill BCs
+        for c, bctype in self._bcs.items():
+            apply_BC(self._d, c, bctype)
+
+        # Number of points and variables
+        num_points, nv = self.get_shape_from_list(l)
+        n = num_points * nv
+
+        # Create a sparse matrix in LIL format
+        jac = lil_matrix((n, n))
+
+        # Get list of cells
+        cells = self._d.cells()
+
+        # Construct Jacobian in blocks of nv*nv
+        # Number of boundary points on each side
+        nb = self._d.nb()
+        for i in range(num_points):
+            # Get the neighbourhood
+            cell_sub = [cells[i + offset]
+                        for offset in range(-nb, nb + 1)]
+
+            # Calculate how many points in the band
+            # for this row
+            start = max(0, i - nb)
+            end = min(num_points, i + nb + 1)
+            band = range(start, end)
+
+            # Get the unperturbed residuals
+            rhs = np.array([])
+            for eq in self._s._model.equations():
+                rhs = np.concatenate(
+                    (rhs, eq.residuals(cell_sub, self._s._scheme)))
+
+            # Perturb the values
+            # TODO: Works only for symmetric schemes
+            mid = len(cell_sub) // 2
+            # across the band
+            for loc in band:
+                offset = loc - i
+                for j in range(nv):
+                    rhs_pert = np.array([])
+                    cell = cell_sub[mid + offset]
+                    current_value = cell.value(j)
+
+                    # Perturb, evaluate residual and then back
+                    cell.set_value(j, current_value + epsilon)
+                    for eq in self._s._model.equations():
+                        rhs_pert = np.concatenate(
+                            (rhs_pert, eq.residuals(cell_sub, self._s._scheme)))
+                    cell.set_value(j, current_value - epsilon)
+
+                    # Calculate Jacobian column
+                    col = (rhs_pert - rhs)/epsilon
+
+                    # Handle split
+                    # Naive assignment if no split
+                    if not split:
+                        # Calculate global indices
+                        row_idx = i * nv
+                        col_idx = loc * nv + j
+                        jac[row_idx:row_idx+nv, col_idx] = col
+                    else:
+                        if split_loc is None:
+                            raise SFDM(
+                                "Split location must be specified in this case")
+
+                        # Calculate global indices
+                        # Instead of nv*nv blocks
+                        # we have split_loc*split_loc blocks first
+                        # and later sub-matrix contains (nv-split_loc)*(nv-split_loc)
+                        na = split_loc
+                        if j < na:
+                            row_idx = i * na
+                            col_idx = loc * na + j
+                            jac[row_idx:row_idx+na, col_idx] = col[:na]
+                        else:
+                            block_offset = num_points * na
+                            # Using nc so as to not coincide with nb
+                            nc = (nv-split_loc)
+                            row_idx = block_offset + i * nc
+                            col_idx = block_offset + loc * nc + (j - na)
+
+                            jac[row_idx:row_idx+nc, col_idx] = col[na:]
+
+        # Return jac
+        print('Done Jacobian')
+        return jac
 
     def steady_state(
         self, split=False, split_loc=None, sparse=True, dt0=0.0, dtmax=1.0, armijo=False, bounds=None
