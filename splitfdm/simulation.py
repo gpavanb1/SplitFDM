@@ -279,7 +279,6 @@ class Simulation:
 
         # Assign values from list
         # Note domain already exists and we preserve distances
-        print('Start Jacobian...')
         self.initialize_from_list(l, split, split_loc)
 
         # Fill BCs
@@ -349,26 +348,35 @@ class Simulation:
                             raise SFDM(
                                 "Split location must be specified in this case")
 
-                        # Calculate global indices
-                        # Instead of nv*nv blocks
-                        # we have split_loc*split_loc blocks first
-                        # and later sub-matrix contains (nv-split_loc)*(nv-split_loc)
+                        # For a given perturbation dimension,
+                        # Assign first split in top part of Jacobian
+                        # Then assign remaining below
                         na = split_loc
+                        block_offset = num_points * na
+
+                        # Row index for first part of residuals
+                        row_idx = i * na
+
+                        # Calculate col_idx depending on pre- or post-split variable
                         if j < na:
-                            row_idx = i * na
                             col_idx = loc * na + j
-                            jac[row_idx:row_idx+na, col_idx] = col[:na]
                         else:
-                            block_offset = num_points * na
-                            # Using nc so as to not coincide with nb
-                            nc = (nv-split_loc)
-                            row_idx = block_offset + i * nc
                             col_idx = block_offset + loc * nc + (j - na)
 
-                            jac[row_idx:row_idx+nc, col_idx] = col[na:]
+                        # Assign first part of residual to Jacobian
+                        jac[row_idx:row_idx+na, col_idx] = col[:na]
+
+                        # Using nc so as to not coincide with nb
+                        nc = (nv-split_loc)
+
+                        # Row index for second part of residuals
+                        row_idx = block_offset + i * nc
+                        # col_idx remains same
+
+                        # Assign second part of residual to Jacobian
+                        jac[row_idx:row_idx+nc, col_idx] = col[na:]
 
         # Return jac
-        print('Done Jacobian')
         return jac
 
     def steady_state(
