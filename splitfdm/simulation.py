@@ -243,6 +243,9 @@ class Simulation:
             A list containing the extended lower and upper bounds.
         """
         # Check if bounds is a 2-list, each of size nv
+        if bounds is None:
+            return None
+
         if len(bounds) != 2:
             raise SFDM("Bounds must be a list of 2 lists")
         else:
@@ -260,7 +263,7 @@ class Simulation:
 
     def jacobian(self, l, split=False, split_loc=None, epsilon=1e-8):
         """
-        Calculate the Jacobian of the system.
+        Calculate the Jacobian of the system using finite differences.
 
         Parameters
         ----------
@@ -270,113 +273,104 @@ class Simulation:
             Whether to split the Jacobian into outer and inner blocks. Defaults to False.
         split_loc : int, optional
             The location to split the Jacobian at. Required if `split` is True.
+        epsilon : float, optional
+            The finite difference step size. Defaults to 1e-8.
 
         Returns
         -------
-        jac : numpy.ndarray
+        jac : scipy.sparse.lil_matrix
             The Jacobian of the system.
         """
 
-        # Assign values from list
-        # Note domain already exists and we preserve distances
+        # Initialize domain from the provided list and apply boundary conditions
         self.initialize_from_list(l, split, split_loc)
-
-        # Fill BCs
         for c, bctype in self._bcs.items():
             apply_BC(self._d, c, bctype)
 
-        # Number of points and variables
+        # Get the number of points and variables
         num_points, nv = self.get_shape_from_list(l)
         n = num_points * nv
 
-        # Create a sparse matrix in LIL format
+        # Create a sparse matrix for the Jacobian
         jac = lil_matrix((n, n))
 
-        # Get list of cells
+        # Retrieve cells and boundary parameters
         cells = self._d.cells()
+        nb, ilo, ihi = self._d.nb(), self._d.ilo(), self._d.ihi()
 
-        # Construct Jacobian in blocks of nv*nv
-        # Number of boundary points on each side
-        nb = self._d.nb()
-        for i in range(num_points):
-            # Get the neighbourhood
-            cell_sub = [cells[i + offset]
-                        for offset in range(-nb, nb + 1)]
+        # Use same point iteration as system residuals
+        # Iterating over interior points
+        for i in range(ilo, ihi + 1):
+            # Define the neighborhood and band around the current cell
+            cell_sub = [cells[i + offset] for offset in range(-nb, nb + 1)]
+            # Indices of points that affect the Jacobian (or part of the band)
+            band = range(max(ilo, i - nb), min(ihi + 1, i + nb + 1))
 
-            # Calculate how many points in the band
-            # for this row
-            start = max(0, i - nb)
-            end = min(num_points, i + nb + 1)
-            band = range(start, end)
+            # Calculate unperturbed residuals
+            rhs = np.concatenate([eq.residuals(cell_sub, self._s._scheme)
+                                  for eq in self._s._model.equations()])
 
-            # Get the unperturbed residuals
-            rhs = np.array([])
-            for eq in self._s._model.equations():
-                rhs = np.concatenate(
-                    (rhs, eq.residuals(cell_sub, self._s._scheme)))
-
-            # Perturb the values
+            # Center cell index in cell_sub
             # TODO: Works only for symmetric schemes
             mid = len(cell_sub) // 2
-            # across the band
+
+            # Perturb each variable and compute the Jacobian columns
             for loc in band:
+                # Compared to center_cell, what is the index of the cell
+                # to be perturbed
                 offset = loc - i
                 for j in range(nv):
-                    rhs_pert = np.array([])
                     cell = cell_sub[mid + offset]
                     current_value = cell.value(j)
 
-                    # Perturb, evaluate residual and then back
+                    # Perturb the current variable and compute perturbed residuals
                     cell.set_value(j, current_value + epsilon)
-                    for eq in self._s._model.equations():
-                        rhs_pert = np.concatenate(
-                            (rhs_pert, eq.residuals(cell_sub, self._s._scheme)))
-                    cell.set_value(j, current_value - epsilon)
+                    rhs_pert = np.concatenate([eq.residuals(cell_sub, self._s._scheme)
+                                               for eq in self._s._model.equations()])
+                    cell.set_value(j, current_value)  # Reset the value
 
-                    # Calculate Jacobian column
-                    col = (rhs_pert - rhs)/epsilon
+                    # Compute the difference and assign to the Jacobian
+                    col = (rhs_pert - rhs) / epsilon
 
-                    # Handle split
-                    # Naive assignment if no split
+                    # Assign the calculated column to the Jacobian
+                    # Blocks of nv*nv matrices are computed
+                    # row_idx gives the start of the column vector
+                    # First point starts at 0, second point starts at nv and so on
+                    # For col_idx, loc - ilo gives shift from 0 for the block in multiples of nv
                     if not split:
-                        # Calculate global indices
-                        row_idx = i * nv
-                        col_idx = loc * nv + j
-                        jac[row_idx:row_idx+nv, col_idx] = col
+                        row_idx = (i - ilo) * nv
+                        col_idx = (loc - ilo) * nv + j
+                        jac[row_idx:row_idx + nv, col_idx] = col
                     else:
                         if split_loc is None:
-                            raise SFDM(
-                                "Split location must be specified in this case")
+                            raise ValueError(
+                                "Split location must be specified if split is True")
 
-                        # For a given perturbation dimension,
-                        # Assign first split in top part of Jacobian
-                        # Then assign remaining below
-                        na = split_loc
+                        # Sizes of the sub-Jacobians
+                        na, nc = split_loc, (nv - split_loc)
+                        # Jumps of block_offset instead of nv here
                         block_offset = num_points * na
 
-                        # Row index for first part of residuals
-                        row_idx = i * na
-
-                        # Calculate col_idx depending on pre- or post-split variable
+                        # First part of residuals
+                        # Same as previous but use na instead
+                        row_idx = (i - ilo) * na
+                        # col_idx jumps to right part of Jacobian
+                        # depending on the variable if pre- or post-split
                         if j < na:
-                            col_idx = loc * na + j
+                            col_idx = (loc - ilo) * na + j
                         else:
-                            col_idx = block_offset + loc * nc + (j - na)
+                            # Jumps of nc in post-split parts
+                            # j-na to ensure post-split variables start afresh
+                            col_idx = block_offset + \
+                                (loc - ilo) * nc + (j - na)
 
-                        # Assign first part of residual to Jacobian
-                        jac[row_idx:row_idx+na, col_idx] = col[:na]
+                        jac[row_idx:row_idx + na, col_idx] = col[:na]
 
-                        # Using nc so as to not coincide with nb
-                        nc = (nv-split_loc)
+                        # Second part of residuals
+                        # col_idx remains same as previous
+                        row_idx = block_offset + (i - ilo) * nc
+                        jac[row_idx:row_idx + nc, col_idx] = col[na:]
 
-                        # Row index for second part of residuals
-                        row_idx = block_offset + i * nc
-                        # col_idx remains same
-
-                        # Assign second part of residual to Jacobian
-                        jac[row_idx:row_idx+nc, col_idx] = col[na:]
-
-        # Return jac
         return jac
 
     def steady_state(
