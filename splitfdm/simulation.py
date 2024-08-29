@@ -281,7 +281,6 @@ class Simulation:
         jac : scipy.sparse.lil_matrix
             The Jacobian of the system.
         """
-
         # Initialize domain from the provided list and apply boundary conditions
         self.initialize_from_list(l, split, split_loc)
         for c, bctype in self._bcs.items():
@@ -325,9 +324,22 @@ class Simulation:
 
                     # Perturb the current variable and compute perturbed residuals
                     cell.set_value(j, current_value + epsilon)
+
+                    # Apply BC again if cell is adjacent to boundary
+                    if ilo in band or ihi in band:
+                        for c, bctype in self._bcs.items():
+                            apply_BC(self._d, c, bctype)
+
+                    # Calculate updated residual
                     rhs_pert = np.concatenate([eq.residuals(cell_sub, self._s._scheme)
                                                for eq in self._s._model.equations()])
-                    cell.set_value(j, current_value)  # Reset the value
+
+                    # Reset the value
+                    cell.set_value(j, current_value)
+                    # Apply BC again if cell is adjacent to boundary
+                    if ilo in band or ihi in band:
+                        for c, bctype in self._bcs.items():
+                            apply_BC(self._d, c, bctype)
 
                     # Compute the difference and assign to the Jacobian
                     col = (rhs_pert - rhs) / epsilon
