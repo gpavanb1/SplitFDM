@@ -10,7 +10,7 @@ from .refine import Refiner
 from .model import Model
 
 # ICs and BCs
-from .bc import apply_BC
+from .bc import apply_BC, extend_band, get_periodic_bcs
 from .initialize import set_initial_condition
 
 # Get the center cell
@@ -286,6 +286,9 @@ class Simulation:
         for c, bctype in self._bcs.items():
             apply_BC(self._d, c, bctype)
 
+        # Find the variables with periodic BCs and their directions
+        periodic_bcs_dict = get_periodic_bcs(self._bcs, self._d)
+
         # Get the number of points and variables
         num_points, nv = self.get_shape_from_list(l)
         n = num_points * nv
@@ -303,23 +306,24 @@ class Simulation:
             # Define the neighborhood and band around the current cell
             cell_sub = [cells[i + offset] for offset in range(-nb, nb + 1)]
             # Indices of points that affect the Jacobian (or part of the band)
-            band = range(max(ilo, i - nb), min(ihi + 1, i + nb + 1))
+            band = list(range(max(ilo, i - nb), min(ihi + 1, i + nb + 1)))
 
             # Calculate unperturbed residuals
             rhs = np.concatenate([eq.residuals(cell_sub, self._s._scheme)
                                   for eq in self._s._model.equations()])
 
-            # Center cell index in cell_sub
-            # TODO: Works only for symmetric schemes
-            mid = len(cell_sub) // 2
-
             # Perturb each variable and compute the Jacobian columns
-            for loc in band:
-                # Compared to center_cell, what is the index of the cell
-                # to be perturbed
-                offset = loc - i
-                for j in range(nv):
-                    cell = cell_sub[mid + offset]
+            for j in range(nv):
+                # Extend the band if required for that variable
+                # Only required for periodic BC for now
+                if j in periodic_bcs_dict.keys():
+                    dirs = periodic_bcs_dict[j]
+                    band = extend_band(band, dirs, i, self._d)
+
+                for loc in band:
+                    # Compared to center_cell, what is the index of the cell
+                    # to be perturbed
+                    cell = cells[loc]
                     current_value = cell.value(j)
 
                     # Perturb the current variable and compute perturbed residuals
