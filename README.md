@@ -1,3 +1,7 @@
+# Note
+
+This repository has been archived. Please refer to [SplitFXM](https://github.com/gpavanb1/SplitFXM)
+
 # SplitFDM
 
 [![Downloads](https://pepy.tech/badge/splitfdm)](https://pepy.tech/project/splitfdm)
