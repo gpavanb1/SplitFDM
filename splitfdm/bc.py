@@ -54,7 +54,7 @@ def apply_BC(d: Domain, v: str, bc: dict = {"left": "periodic", "right": "period
                 for i, b in enumerate(lb):
                     shift = xmax - cells[ihi - (i + 1)].x()
                     b.set_x(xmin - shift)
-                    b.set_value(idx, cells[ihi - (i + 1)].value(idx))
+                    b.set_value(idx, cells[ihi - i].value(idx))
 
             elif dir == btype_map[btype.RIGHT]:
                 # right boundary
@@ -62,7 +62,7 @@ def apply_BC(d: Domain, v: str, bc: dict = {"left": "periodic", "right": "period
                 for i, b in enumerate(rb):
                     shift = cells[(i + 1) + ilo].x() - xmin
                     b.set_x(xmax + shift)
-                    b.set_value(idx, cells[(i + 1) + ilo].value(idx))
+                    b.set_value(idx, cells[i + ilo].value(idx))
 
             else:
                 raise SFDM("Incorrect boundary direction encountered")
