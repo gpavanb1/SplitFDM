@@ -13,8 +13,6 @@ from .model import Model
 from .bc import apply_BC, extend_band, get_periodic_bcs
 from .initialize import set_initial_condition
 
-# Get the center cell
-from .derivatives import get_center_cell
 
 # Sparse matrix for Jacobian
 from scipy.sparse import lil_matrix

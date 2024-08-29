@@ -6,28 +6,6 @@ Schemes = Enum("Schemes", "CENTRAL")
 Directions = Enum("Directions", "WEST EAST")
 
 
-def get_center_cell(cell_sub, scheme):
-    """
-    Retrieve the center cell from a given cell subset based on the specified finite difference scheme.
-
-    Parameters:
-    ----------
-    cell_sub (list): A list of cells representing the subset of cells (or stencil).
-    scheme (Schemes): An enumeration value representing the finite difference scheme to be used.
-
-    Returns:
-    ----------
-    cell: The center cell from the cell subset.
-    """
-    if scheme == Schemes.CENTRAL:
-        if len(cell_sub) != 3:
-            raise SFDM("Improper stencil size for central difference scheme")
-
-        return cell_sub[1]
-    else:
-        raise SFDM("Unsupported scheme")
-
-
 def Dx(F, cell_sub, scheme):
     """
     Calculate the first derivative of a given stencil.
